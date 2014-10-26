@@ -10,6 +10,7 @@ __version__ = "1.0"
 __email__ = "oriol@nyu.edu"
 
 import argparse
+import csv
 import glob
 import logging
 import numpy as np
@@ -25,6 +26,33 @@ bpm_dict = {"wtc2f20-poly": 84,
             "silverswan-poly": 54,
             "sonata04-2-poly": 120
             }
+
+name_dict = {"wtc2f20-poly": "bachBWV889Fg-polyphonic",
+            "sonata01-3-poly": "beethovenOp2No1Mvt3-polyphonic",
+            "mazurka24-4-poly": "chopinOp24No4-polyphonic",
+            "silverswan-poly": "gibbonsSilverSwan1612-polyphonic",
+            "sonata04-2-poly": "mozartK282Mvt2-polyphonic"
+            }
+
+CSV_ONTIME = 0
+CSV_MIDI = 1
+CSV_HEIGHT = 2
+CSV_DUR = 3
+CSV_STAFF = 4
+
+
+def read_csv(csv_file):
+    """Reads a csv into a numpy array."""
+    f = open(csv_file, "r")
+    csvscore = csv.reader(f, delimiter=",")
+    score = []
+    for row in csvscore:
+        score.append([float(row[CSV_ONTIME]), float(row[CSV_MIDI]),
+            float(row[CSV_HEIGHT]), float(row[CSV_DUR]),
+            float(row[CSV_STAFF])])
+    score = np.asarray(score)
+    f.close()
+    return score
 
 
 def load_features(wav_file):
@@ -59,17 +87,45 @@ def bounds_to_patterns(bounds, labels):
     return patterns
 
 
-def output_patterns(all_patterns):
+def find_index(time, midi_score, offset, bpm):
+    for i, note in enumerate(midi_score):
+        if (note[CSV_ONTIME] + offset) / float(bpm) * 60 >= time:
+            return i
+    return i
+
+
+def times_to_midi(occ, midi_score, bpm):
+    offset = int(midi_score[0, CSV_ONTIME])
+    start_index = find_index(occ[0], midi_score, offset, bpm)
+    end_index = find_index(occ[1], midi_score, offset, bpm)
+    notes = []
+    for idx in range(start_index, end_index):
+        notes.append((midi_score[idx, CSV_ONTIME], midi_score[idx, CSV_MIDI]))
+    return notes
+
+
+def output_patterns(all_patterns, file_name, out_file):
     """TODO."""
+    out_str = ""
+    k = 0
+    midi_score = read_csv(file_name.replace(".wav", ".csv"))
+
     for patterns in all_patterns:
-        for i, pattern in enumerate(patterns):
-            print "pattern %d" % i
-            for j, occ in enumerate(pattern):
-                print "occurrence %d" % j
-                print occ
+        for pattern in patterns:
+            out_str += "pattern %d\n" % k
+            for i, occ in enumerate(pattern):
+                out_str += "occurrence %d\n" % i
+                notes = times_to_midi(occ, midi_score,
+                              bpm_dict[os.path.basename(file_name).replace(".wav", "")])
+                for note in notes:
+                    out_str += "%f, %f\n" % (note[0], note[1])
+            k += 1
+
+    with open(out_file, "w") as f:
+        f.write(out_str)
 
 
-def process(in_dir, out_dir, start_layer=8, n_layers=3):
+def process(in_dir, out_dir, start_layer=13, n_layers=5):
     """Main process."""
     # Get wav files
     wav_files = glob.glob(os.path.join(in_dir, "*.wav"))
@@ -92,7 +148,7 @@ def process(in_dir, out_dir, start_layer=8, n_layers=3):
             all_patterns.append(patterns)
 
         # Final patterns
-        output_patterns(all_patterns)
+        output_patterns(all_patterns, wav_file, out_dir + "/" + name_dict[os.path.basename(wav_file).replace(".wav", "")] + ".txt")
 
 
 if __name__ == '__main__':
